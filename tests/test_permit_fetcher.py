@@ -8,7 +8,8 @@ from uuid import uuid4
 
 import pytest
 
-from rcf.scanner.permit_fetcher import _classify_status, _epoch_to_date
+from rcf.scanner.iplan_client import epoch_to_date as _epoch_to_date
+from rcf.scanner.permit_fetcher import _classify_status
 
 
 # --- _classify_status ---
@@ -67,16 +68,8 @@ def test_epoch_to_date_invalid():
 @pytest.mark.asyncio
 async def test_fetch_permits_no_features():
     """Returns empty list when iPlan has no features at location."""
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = {"features": []}
-    mock_resp.raise_for_status = MagicMock()
-
-    mock_client = AsyncMock()
-    mock_client.get.return_value = mock_resp
-    mock_client.__aenter__.return_value = mock_client
-    mock_client.__aexit__.return_value = None
-
-    with patch("rcf.scanner.permit_fetcher.httpx.AsyncClient", return_value=mock_client):
+    with patch("rcf.scanner.permit_fetcher.query_plans", new_callable=AsyncMock) as mock_query:
+        mock_query.return_value = []
         from rcf.scanner.permit_fetcher import fetch_permits
         result = await fetch_permits(32.08, 34.78, str(uuid4()))
 
@@ -86,41 +79,33 @@ async def test_fetch_permits_no_features():
 @pytest.mark.asyncio
 async def test_fetch_permits_with_rejected_plan():
     """Returns PermitCreate for rejected plans."""
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = {
-        "features": [
-            {
-                "attributes": {
-                    "pl_number": "101-999",
-                    "pl_name": "test plan",
-                    "station_desc": "",
-                    "internet_short_status": "דחיית תכנית",
-                    "plan_county_name": "תל אביב",
-                    "pl_date7": 1577836800000,
-                    "pl_rejection_date": None,
-                    "pl_url": "https://example.com/plan",
-                    "receiving_date": 1546300800000,
-                    "ja_concat": "ועדה מקומית",
-                }
-            },
-            {
-                "attributes": {
-                    "pl_number": "101-888",
-                    "internet_short_status": "אושרה",
-                    "station_desc": "תקפה",
-                }
-            },
-        ]
-    }
-    mock_resp.raise_for_status = MagicMock()
-
-    mock_client = AsyncMock()
-    mock_client.get.return_value = mock_resp
-    mock_client.__aenter__.return_value = mock_client
-    mock_client.__aexit__.return_value = None
+    features = [
+        {
+            "attributes": {
+                "pl_number": "101-999",
+                "pl_name": "test plan",
+                "station_desc": "",
+                "internet_short_status": "דחיית תכנית",
+                "plan_county_name": "תל אביב",
+                "pl_date7": 1577836800000,
+                "pl_rejection_date": None,
+                "pl_url": "https://example.com/plan",
+                "receiving_date": 1546300800000,
+                "ja_concat": "ועדה מקומית",
+            }
+        },
+        {
+            "attributes": {
+                "pl_number": "101-888",
+                "internet_short_status": "אושרה",
+                "station_desc": "תקפה",
+            }
+        },
+    ]
 
     prop_id = str(uuid4())
-    with patch("rcf.scanner.permit_fetcher.httpx.AsyncClient", return_value=mock_client):
+    with patch("rcf.scanner.permit_fetcher.query_plans", new_callable=AsyncMock) as mock_query:
+        mock_query.return_value = features
         from rcf.scanner.permit_fetcher import fetch_permits
         result = await fetch_permits(32.08, 34.78, prop_id)
 

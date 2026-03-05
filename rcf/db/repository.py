@@ -8,6 +8,7 @@ from uuid import UUID
 from rcf.db.client import execute, execute_one
 from rcf.db.models import (
     CaseClaimCreate,
+    FeeAnalysisCreate,
     LawyerCreate,
     OwnerCreate,
     PermitCreate,
@@ -86,12 +87,17 @@ def get_pending_properties(city: str | None = None, limit: int = 100) -> list[di
 # ------------------------------------------------------------------
 
 def insert_permit(data: PermitCreate) -> dict:
+    """Insert or update a permit (unique on property_id + permit_number)."""
     return execute_one(
         """
         INSERT INTO permits (property_id, permit_number, application_date, decision_date,
                              decision_type, committee_name, source_url, raw_decision)
         VALUES (%(property_id)s, %(permit_number)s, %(application_date)s, %(decision_date)s,
                 %(decision_type)s, %(committee_name)s, %(source_url)s, %(raw_decision)s)
+        ON CONFLICT (property_id, permit_number) DO UPDATE SET
+            decision_date = COALESCE(EXCLUDED.decision_date, permits.decision_date),
+            decision_type = COALESCE(EXCLUDED.decision_type, permits.decision_type),
+            source_url = COALESCE(EXCLUDED.source_url, permits.source_url)
         RETURNING *
         """,
         data.model_dump(mode="json"),
@@ -117,16 +123,37 @@ def get_permits_for_property(property_id: UUID) -> list[dict]:
 # ------------------------------------------------------------------
 
 def insert_refund_case(data: RefundCaseCreate) -> dict:
+    """Insert or update a refund case (unique on permit_id).
+
+    Only updates if the existing case is still in 'detected' status —
+    never overwrites cases that are already verified/claimed/recovered.
+    """
     return execute_one(
         """
         INSERT INTO refund_cases (permit_id, property_id, classification, confidence_score,
                                   is_eligible, estimated_refund, statute_expires_at, evidence_summary)
         VALUES (%(permit_id)s, %(property_id)s, %(classification)s, %(confidence_score)s,
                 %(is_eligible)s, %(estimated_refund)s, %(statute_expires_at)s, %(evidence_summary)s)
+        ON CONFLICT (permit_id) DO UPDATE SET
+            classification = EXCLUDED.classification,
+            confidence_score = EXCLUDED.confidence_score,
+            is_eligible = EXCLUDED.is_eligible,
+            estimated_refund = EXCLUDED.estimated_refund,
+            evidence_summary = EXCLUDED.evidence_summary
+        WHERE refund_cases.status = 'detected'
         RETURNING *
         """,
         data.model_dump(mode="json"),
     )
+
+
+def get_refund_case_by_permit(permit_id: str) -> dict | None:
+    """Return the refund case for a permit, or None."""
+    rows = execute(
+        "SELECT * FROM refund_cases WHERE permit_id = %(pid)s",
+        {"pid": permit_id},
+    )
+    return rows[0] if rows else None
 
 
 def update_refund_case_status(case_id: UUID, status: str) -> None:
@@ -139,6 +166,7 @@ def update_refund_case_status(case_id: UUID, status: str) -> None:
 def get_eligible_cases(
     city: str | None = None,
     status: str | None = None,
+    case_type: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict]:
@@ -151,6 +179,9 @@ def get_eligible_cases(
     if status:
         clauses.append("rc.status = %(status)s")
         params["status"] = status
+    if case_type:
+        clauses.append("rc.case_type = %(case_type)s")
+        params["case_type"] = case_type
 
     where = " AND ".join(clauses)
     return execute(
@@ -274,4 +305,140 @@ def get_claims_for_owner(owner_id: UUID) -> list[dict]:
         WHERE cc.owner_id = %(id)s
         """,
         {"id": str(owner_id)},
+    )
+
+
+# ------------------------------------------------------------------
+# Fee Analyses
+# ------------------------------------------------------------------
+
+def insert_fee_analysis(data: FeeAnalysisCreate) -> dict:
+    return execute_one(
+        """
+        INSERT INTO fee_analyses (
+            property_id, permit_id,
+            invoice_total, invoice_paving_sqm, invoice_drainage_sqm, invoice_rate_per_sqm,
+            permit_residential_sqm, permit_service_sqm, permit_total_sqm,
+            correct_fee, overcharge_amount, fee_year, rate_used,
+            invoice_pdf_url, permit_pdf_url, extraction_raw,
+            plan_number, plan_url, scan_source, status
+        ) VALUES (
+            %(property_id)s, %(permit_id)s,
+            %(invoice_total)s, %(invoice_paving_sqm)s, %(invoice_drainage_sqm)s, %(invoice_rate_per_sqm)s,
+            %(permit_residential_sqm)s, %(permit_service_sqm)s, %(permit_total_sqm)s,
+            %(correct_fee)s, %(overcharge_amount)s, %(fee_year)s, %(rate_used)s,
+            %(invoice_pdf_url)s, %(permit_pdf_url)s, %(extraction_raw)s,
+            %(plan_number)s, %(plan_url)s, %(scan_source)s, %(status)s
+        ) RETURNING *
+        """,
+        data.model_dump(mode="json"),
+    )
+
+
+def upsert_fee_analysis(data: FeeAnalysisCreate) -> dict:
+    """Insert or update a fee analysis (unique on permit_id).
+
+    Only updates if the existing record is still 'pre_computed' —
+    never overwrites completed analyses with invoice data.
+    """
+    return execute_one(
+        """
+        INSERT INTO fee_analyses (
+            property_id, permit_id,
+            invoice_total, invoice_paving_sqm, invoice_drainage_sqm, invoice_rate_per_sqm,
+            permit_residential_sqm, permit_service_sqm, permit_total_sqm,
+            correct_fee, overcharge_amount, fee_year, rate_used,
+            invoice_pdf_url, permit_pdf_url, extraction_raw,
+            plan_number, plan_url, scan_source, status
+        ) VALUES (
+            %(property_id)s, %(permit_id)s,
+            %(invoice_total)s, %(invoice_paving_sqm)s, %(invoice_drainage_sqm)s, %(invoice_rate_per_sqm)s,
+            %(permit_residential_sqm)s, %(permit_service_sqm)s, %(permit_total_sqm)s,
+            %(correct_fee)s, %(overcharge_amount)s, %(fee_year)s, %(rate_used)s,
+            %(invoice_pdf_url)s, %(permit_pdf_url)s, %(extraction_raw)s,
+            %(plan_number)s, %(plan_url)s, %(scan_source)s, %(status)s
+        )
+        ON CONFLICT (permit_id) DO UPDATE SET
+            permit_residential_sqm = EXCLUDED.permit_residential_sqm,
+            permit_service_sqm = EXCLUDED.permit_service_sqm,
+            permit_total_sqm = EXCLUDED.permit_total_sqm,
+            correct_fee = EXCLUDED.correct_fee,
+            fee_year = EXCLUDED.fee_year,
+            rate_used = EXCLUDED.rate_used,
+            plan_number = EXCLUDED.plan_number,
+            plan_url = EXCLUDED.plan_url
+        WHERE fee_analyses.status = 'pre_computed'
+        RETURNING *
+        """,
+        data.model_dump(mode="json"),
+    )
+
+
+def get_fee_analysis(analysis_id: UUID) -> dict | None:
+    rows = execute(
+        """
+        SELECT fa.*, p.city, p.address_text
+        FROM fee_analyses fa
+        JOIN properties p ON p.id = fa.property_id
+        WHERE fa.id = %(id)s
+        """,
+        {"id": str(analysis_id)},
+    )
+    return rows[0] if rows else None
+
+
+def get_fee_analysis_by_permit(permit_id: str) -> dict | None:
+    """Return the fee analysis for a permit, or None."""
+    rows = execute(
+        """
+        SELECT fa.*, p.city, p.address_text
+        FROM fee_analyses fa
+        JOIN properties p ON p.id = fa.property_id
+        WHERE fa.permit_id = %(pid)s
+        """,
+        {"pid": permit_id},
+    )
+    return rows[0] if rows else None
+
+
+def get_fee_analyses(
+    city: str | None = None,
+    status: str | None = None,
+    scan_source: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    """List fee analyses with optional filters."""
+    clauses = ["1=1"]
+    params: dict = {"limit": limit, "offset": offset}
+
+    if city:
+        clauses.append("p.city ILIKE %(city)s")
+        params["city"] = f"%{city}%"
+    if status:
+        clauses.append("fa.status = %(status)s")
+        params["status"] = status
+    if scan_source:
+        clauses.append("fa.scan_source = %(scan_source)s")
+        params["scan_source"] = scan_source
+
+    where = " AND ".join(clauses)
+    return execute(
+        f"""
+        SELECT fa.*, p.city, p.address_text, pm.permit_number
+        FROM fee_analyses fa
+        JOIN properties p ON p.id = fa.property_id
+        LEFT JOIN permits pm ON pm.id = fa.permit_id
+        WHERE {where}
+        ORDER BY fa.created_at DESC
+        LIMIT %(limit)s OFFSET %(offset)s
+        """,
+        params,
+    )
+
+
+def get_fee_analyses_for_property(property_id: UUID) -> list[dict]:
+    return execute(
+        "SELECT * FROM fee_analyses WHERE property_id = %(pid)s ORDER BY created_at DESC",
+        {"pid": str(property_id)},
     )

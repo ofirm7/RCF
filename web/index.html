@@ -212,6 +212,82 @@
     <button class="btn btn-primary" onclick="searchAddress()">Search</button>
   </div>
 
+  <!-- Fee Analysis Upload -->
+  <div class="filters" style="flex-direction:column;gap:1rem">
+    <h3 style="font-size:1rem;font-weight:600;color:#1a1a2e">Fee Overcharge Analysis</h3>
+    <p style="font-size:0.8rem;color:#777;margin-top:-0.5rem">Upload a fee invoice + building permit PDF to check for overcharging</p>
+    <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:end">
+      <div class="filter-group">
+        <label>Address</label>
+        <input type="text" id="feeAddress" placeholder="e.g. הרצל 10">
+      </div>
+      <div class="filter-group">
+        <label>City</label>
+        <input type="text" id="feeCity" placeholder="e.g. תל אביב">
+      </div>
+      <div class="filter-group">
+        <label>Fee Year</label>
+        <input type="number" id="feeYear" value="2024" min="2018" max="2026" style="min-width:80px">
+      </div>
+      <div class="filter-group">
+        <label>Fee Invoice PDF</label>
+        <input type="file" id="invoicePdf" accept=".pdf" style="font-size:0.8rem">
+      </div>
+      <div class="filter-group">
+        <label>Permit / Grmoushka PDF</label>
+        <input type="file" id="permitPdf" accept=".pdf" style="font-size:0.8rem">
+      </div>
+      <button class="btn btn-primary" onclick="analyzeFees()" id="analyzeBtn">Analyze</button>
+    </div>
+    <div id="feeResult" style="display:none;margin-top:0.5rem;padding:1rem;border-radius:8px;font-size:0.85rem"></div>
+  </div>
+
+  <!-- Auto-Scanned Fee Analyses -->
+  <div class="table-wrap" style="margin-bottom:1.5rem">
+    <div style="padding:1rem 1.25rem;border-bottom:2px solid #e9ecef;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <h3 style="font-size:1rem;font-weight:600;color:#1a1a2e">Auto-Scanned Fee Analyses</h3>
+        <p style="font-size:0.8rem;color:#777">Pre-computed correct fees from iPlan data. Upload an invoice to check for overcharges.</p>
+      </div>
+      <div style="display:flex;gap:0.5rem;align-items:center">
+        <select id="feeFilterCity" style="padding:0.4rem 0.6rem;border:1px solid #ddd;border-radius:8px;font-size:0.8rem">
+          <option value="">All cities</option>
+          <option value="חיפה" selected>Haifa</option>
+        </select>
+        <select id="feeFilterStatus" style="padding:0.4rem 0.6rem;border:1px solid #ddd;border-radius:8px;font-size:0.8rem">
+          <option value="">All</option>
+          <option value="pre_computed">Pre-computed</option>
+          <option value="complete">Complete</option>
+          <option value="overcharge_detected">Overcharge</option>
+        </select>
+        <button class="btn btn-primary" style="padding:0.4rem 0.8rem;font-size:0.8rem" onclick="loadFeeAnalyses()">Filter</button>
+      </div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Plan #</th>
+          <th>City</th>
+          <th>Residential (sqm)</th>
+          <th>Service (sqm)</th>
+          <th>Correct Fee</th>
+          <th>Status</th>
+          <th>Year</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="feeBody"></tbody>
+    </table>
+    <div id="feeEmpty" class="empty-state" style="display:none">
+      <p>No fee analyses found. Wait for the scanner to process plans.</p>
+    </div>
+    <div class="pagination">
+      <button class="btn btn-secondary" id="feePrevBtn" onclick="feePrevPage()" disabled style="padding:0.3rem 0.6rem;font-size:0.8rem">&rarr; Prev</button>
+      <span id="feePageInfo" style="padding:0.5rem;color:#777;font-size:0.8rem"></span>
+      <button class="btn btn-secondary" id="feeNextBtn" onclick="feeNextPage()" disabled style="padding:0.3rem 0.6rem;font-size:0.8rem">Next &larr;</button>
+    </div>
+  </div>
+
   <!-- Stats -->
   <div class="stats">
     <div class="stat-card"><div class="value" id="statTotal">—</div><div class="label">Total Cases</div></div>
@@ -244,6 +320,7 @@
     <table>
       <thead>
         <tr>
+          <th>Type</th>
           <th>City</th>
           <th>Plan / Address</th>
           <th>Permit #</th>
@@ -346,7 +423,12 @@ function renderTable() {
       const statusBadge = c.status === 'claimed' ? '<span class="badge badge-claimed">Claimed</span>'
                         : '<span class="badge badge-detected">' + (c.status || 'detected') + '</span>';
 
+      const typeBadge = c.case_type === 'fee_overcharge'
+        ? '<span class="badge" style="background:#e8f5e9;color:#2e7d32">Fee Check</span>'
+        : '<span class="badge" style="background:#e3f2fd;color:#1565c0">Plan</span>';
+
       return `<tr>
+        <td>${typeBadge}</td>
         <td class="city-name">${esc(c.city || '—')}</td>
         <td>${esc(c.address_text || '—')}</td>
         <td>${esc(c.permit_number || '—')}</td>
@@ -471,13 +553,193 @@ function esc(s) {
   return d.innerHTML;
 }
 
+async function analyzeFees() {
+  const address = document.getElementById('feeAddress').value.trim();
+  const city = document.getElementById('feeCity').value.trim();
+  const feeYear = document.getElementById('feeYear').value;
+  const invoiceFile = document.getElementById('invoicePdf').files[0];
+  const permitFile = document.getElementById('permitPdf').files[0];
+  const resultDiv = document.getElementById('feeResult');
+
+  if (!address || !city || !invoiceFile || !permitFile) {
+    resultDiv.style.display = 'block';
+    resultDiv.style.background = '#fff3cd';
+    resultDiv.innerHTML = 'Please fill in all fields and upload both PDFs.';
+    return;
+  }
+
+  const btn = document.getElementById('analyzeBtn');
+  btn.disabled = true;
+  btn.textContent = 'Analyzing...';
+  resultDiv.style.display = 'block';
+  resultDiv.style.background = '#e9ecef';
+  resultDiv.innerHTML = 'Uploading and extracting data from PDFs...';
+
+  const formData = new FormData();
+  formData.append('address', address);
+  formData.append('city', city);
+  formData.append('fee_year', feeYear);
+  formData.append('invoice_pdf', invoiceFile);
+  formData.append('permit_pdf', permitFile);
+
+  try {
+    const resp = await fetch(API + '/api/fee-analysis', { method: 'POST', body: formData });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      resultDiv.style.background = '#f8d7da';
+      resultDiv.innerHTML = `Error: ${data.detail || 'Analysis failed'}`;
+      return;
+    }
+
+    if (data.is_overcharged) {
+      resultDiv.style.background = '#d4edda';
+      resultDiv.innerHTML = `
+        <strong style="color:#155724">Overcharge Detected!</strong><br>
+        Municipality charged: <strong>₪${data.invoice_total_nis.toLocaleString()}</strong><br>
+        Correct fee: <strong>₪${data.correct_fee_nis.toLocaleString()}</strong><br>
+        <span style="font-size:1.1rem;font-weight:700;color:#28a745">
+          Refund owed: ₪${data.overcharge_nis.toLocaleString()}
+        </span><br>
+        <span style="font-size:0.8rem;color:#666">
+          Residential: ${data.extracted_permit?.residential_sqm || '?'} sqm |
+          Service: ${data.extracted_permit?.service_sqm || '?'} sqm |
+          Rate: ₪${data.breakdown?.residential_rate || '?'}/sqm
+        </span>
+      `;
+      loadCases(); // Refresh to show new case
+    } else {
+      resultDiv.style.background = '#cce5ff';
+      resultDiv.innerHTML = `
+        <strong>No overcharge found.</strong><br>
+        Municipality charged: ₪${data.invoice_total_nis.toLocaleString()}<br>
+        Correct fee: ₪${data.correct_fee_nis.toLocaleString()}
+      `;
+    }
+  } catch (err) {
+    resultDiv.style.background = '#f8d7da';
+    resultDiv.innerHTML = `Network error: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Analyze';
+  }
+}
+
 // Enter key triggers search
 document.getElementById('addressInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') searchAddress();
 });
 
+// === Fee Analyses ===
+const FEE_PAGE_SIZE = 15;
+let feeOffset = 0;
+let allFeeAnalyses = [];
+
+async function loadFeeAnalyses() {
+  const city = document.getElementById('feeFilterCity').value;
+  const status = document.getElementById('feeFilterStatus').value;
+  let url = `/api/fee-analysis?limit=200`;
+  if (city) url += `&city=${encodeURIComponent(city)}`;
+  if (status) url += `&status=${encodeURIComponent(status)}`;
+
+  const data = await apiFetch(url);
+  allFeeAnalyses = data || [];
+  feeOffset = 0;
+  renderFeeTable();
+}
+
+function renderFeeTable() {
+  const body = document.getElementById('feeBody');
+  const empty = document.getElementById('feeEmpty');
+  const page = allFeeAnalyses.slice(feeOffset, feeOffset + FEE_PAGE_SIZE);
+
+  if (allFeeAnalyses.length === 0) {
+    body.innerHTML = '';
+    empty.style.display = 'block';
+  } else {
+    empty.style.display = 'none';
+    body.innerHTML = page.map(fa => {
+      const correctFee = fa.correct_fee ? `₪${(fa.correct_fee / 100).toLocaleString()}` : '—';
+      const statusBadge = fa.status === 'overcharge_detected'
+        ? '<span class="badge badge-eligible">Overcharge</span>'
+        : fa.status === 'complete'
+        ? '<span class="badge badge-detected">Complete</span>'
+        : '<span class="badge badge-unclear">Pre-computed</span>';
+
+      const overcharge = fa.overcharge_amount && fa.overcharge_amount > 0
+        ? `<span class="refund-amount">₪${(fa.overcharge_amount / 100).toLocaleString()}</span>`
+        : '';
+
+      const actions = fa.status === 'pre_computed'
+        ? `<label class="btn btn-primary" style="padding:0.25rem 0.5rem;font-size:0.7rem;cursor:pointer">
+             Upload Invoice
+             <input type="file" accept=".pdf" style="display:none" onchange="uploadInvoiceFor('${fa.id}', this)">
+           </label>`
+        : overcharge || '—';
+
+      const planLink = fa.plan_url
+        ? `<a href="${esc(fa.plan_url)}" target="_blank" class="plan-link">${esc(fa.plan_number || '—')}</a>`
+        : esc(fa.plan_number || '—');
+
+      return `<tr>
+        <td>${planLink}</td>
+        <td class="city-name">${esc(fa.city || '—')}</td>
+        <td>${fa.permit_residential_sqm ? fa.permit_residential_sqm.toLocaleString() : '—'}</td>
+        <td>${fa.permit_service_sqm ? fa.permit_service_sqm.toLocaleString() : '—'}</td>
+        <td>${correctFee}</td>
+        <td>${statusBadge}</td>
+        <td>${fa.fee_year || '—'}</td>
+        <td>${actions}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  document.getElementById('feePrevBtn').disabled = feeOffset === 0;
+  document.getElementById('feeNextBtn').disabled = feeOffset + FEE_PAGE_SIZE >= allFeeAnalyses.length;
+  const pg = Math.floor(feeOffset / FEE_PAGE_SIZE) + 1;
+  const tp = Math.ceil(allFeeAnalyses.length / FEE_PAGE_SIZE);
+  document.getElementById('feePageInfo').textContent = allFeeAnalyses.length > 0 ? `${pg}/${tp}` : '';
+}
+
+function feeNextPage() { feeOffset += FEE_PAGE_SIZE; renderFeeTable(); }
+function feePrevPage() { feeOffset = Math.max(0, feeOffset - FEE_PAGE_SIZE); renderFeeTable(); }
+
+async function uploadInvoiceFor(analysisId, input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  const row = input.closest('tr');
+  row.style.opacity = '0.5';
+
+  const formData = new FormData();
+  formData.append('invoice_pdf', file);
+
+  try {
+    const resp = await fetch(`${API}/api/fee-analysis/${analysisId}/invoice`, { method: 'POST', body: formData });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      alert(`Error: ${data.detail || 'Upload failed'}`);
+      return;
+    }
+
+    if (data.is_overcharged) {
+      alert(`Overcharge detected! Municipality charged ₪${data.invoice_total_nis.toLocaleString()}, correct fee ₪${data.correct_fee_nis.toLocaleString()}. Refund: ₪${data.overcharge_nis.toLocaleString()}`);
+    } else {
+      alert(`No overcharge. Invoice ₪${data.invoice_total_nis.toLocaleString()} vs correct ₪${data.correct_fee_nis.toLocaleString()}`);
+    }
+    loadFeeAnalyses();
+    loadCases();
+  } catch (err) {
+    alert(`Error: ${err.message}`);
+  } finally {
+    row.style.opacity = '1';
+  }
+}
+
 // Load on startup
 loadCases();
+loadFeeAnalyses();
 </script>
 </body>
 </html>

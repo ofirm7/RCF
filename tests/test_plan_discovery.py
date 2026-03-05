@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from rcf.scanner.plan_discovery import _centroid_from_geometry, _epoch_to_date
+from rcf.scanner.iplan_client import centroid_from_geometry as _centroid_from_geometry, epoch_to_date as _epoch_to_date
 
 
 # --- _centroid_from_geometry ---
@@ -71,36 +71,28 @@ def test_epoch_to_date_invalid():
 
 @pytest.mark.asyncio
 async def test_fetch_rejected_plans_returns_plans():
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = {
-        "features": [
-            {
-                "attributes": {
-                    "pl_number": "101-999",
-                    "pl_name": "test plan",
-                    "station_desc": "rejected",
-                    "internet_short_status": "דחיית תכנית",
-                    "plan_county_name": "תל אביב",
-                    "pl_date7": 1577836800000,
-                    "pl_rejection_date": None,
-                    "pl_url": "https://example.com/plan",
-                    "receiving_date": 1546300800000,
-                    "ja_concat": "ועדה",
-                },
-                "geometry": {
-                    "rings": [[[34.78, 32.08], [34.79, 32.08], [34.79, 32.09], [34.78, 32.09]]]
-                },
-            }
-        ]
-    }
-    mock_resp.raise_for_status = MagicMock()
+    features = [
+        {
+            "attributes": {
+                "pl_number": "101-999",
+                "pl_name": "test plan",
+                "station_desc": "rejected",
+                "internet_short_status": "דחיית תכנית",
+                "plan_county_name": "תל אביב",
+                "pl_date7": 1577836800000,
+                "pl_rejection_date": None,
+                "pl_url": "https://example.com/plan",
+                "receiving_date": 1546300800000,
+                "ja_concat": "ועדה",
+            },
+            "geometry": {
+                "rings": [[[34.78, 32.08], [34.79, 32.08], [34.79, 32.09], [34.78, 32.09]]]
+            },
+        }
+    ]
 
-    mock_client = AsyncMock()
-    mock_client.get.return_value = mock_resp
-    mock_client.__aenter__.return_value = mock_client
-    mock_client.__aexit__.return_value = None
-
-    with patch("rcf.scanner.plan_discovery.httpx.AsyncClient", return_value=mock_client):
+    with patch("rcf.scanner.plan_discovery.query_plans", new_callable=AsyncMock) as mock_query:
+        mock_query.return_value = features
         from rcf.scanner.plan_discovery import fetch_rejected_plans
         plans = await fetch_rejected_plans()
 
@@ -113,16 +105,8 @@ async def test_fetch_rejected_plans_returns_plans():
 
 @pytest.mark.asyncio
 async def test_fetch_rejected_plans_empty():
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = {"features": []}
-    mock_resp.raise_for_status = MagicMock()
-
-    mock_client = AsyncMock()
-    mock_client.get.return_value = mock_resp
-    mock_client.__aenter__.return_value = mock_client
-    mock_client.__aexit__.return_value = None
-
-    with patch("rcf.scanner.plan_discovery.httpx.AsyncClient", return_value=mock_client):
+    with patch("rcf.scanner.plan_discovery.query_plans", new_callable=AsyncMock) as mock_query:
+        mock_query.return_value = []
         from rcf.scanner.plan_discovery import fetch_rejected_plans
         plans = await fetch_rejected_plans(city_filter="nonexistent")
 
@@ -131,19 +115,10 @@ async def test_fetch_rejected_plans_empty():
 
 @pytest.mark.asyncio
 async def test_fetch_rejected_plans_city_filter_in_query():
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = {"features": []}
-    mock_resp.raise_for_status = MagicMock()
-
-    mock_client = AsyncMock()
-    mock_client.get.return_value = mock_resp
-    mock_client.__aenter__.return_value = mock_client
-    mock_client.__aexit__.return_value = None
-
-    with patch("rcf.scanner.plan_discovery.httpx.AsyncClient", return_value=mock_client):
+    with patch("rcf.scanner.plan_discovery.query_plans", new_callable=AsyncMock) as mock_query:
+        mock_query.return_value = []
         from rcf.scanner.plan_discovery import fetch_rejected_plans
         await fetch_rejected_plans(city_filter="ירושלים")
 
-    call_args = mock_client.get.call_args
-    where = call_args[1]["params"]["where"] if "params" in call_args[1] else call_args[0][1]["where"]
-    assert "ירושלים" in where
+    call_args = mock_query.call_args
+    assert "ירושלים" in call_args[1]["where"]

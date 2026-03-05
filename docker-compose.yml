@@ -23,6 +23,7 @@ services:
     command: uvicorn rcf.api.app:app --host 0.0.0.0 --port 8000
     environment:
       DATABASE_URL: postgresql://rcf:rcf@db:5432/rcf
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     ports:
       - "8000:8000"
     depends_on:

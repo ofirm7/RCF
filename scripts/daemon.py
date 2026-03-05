@@ -30,7 +30,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from rcf.config import get_config
 from rcf.scanner.address_discovery import fetch_cities, ingest_city
+from rcf.scanner.fee_scanner import scan_city_fees
 from rcf.scanner.runner import scan_rejected_plans
 
 logging.basicConfig(
@@ -123,9 +125,24 @@ async def run_cycle(args: argparse.Namespace, cycle_num: int) -> dict:
     else:
         scan_result = {"total": 0, "scanned": 0, "errors": 0}
 
+    # ── Phase 4: Automatic fee analysis for configured cities ──────
+    fee_result = {"total": 0, "processed": 0}
+    cfg = get_config()
+    if not _shutdown and cfg.fee_scan_enabled:
+        logger.info("[Phase 4] Running fee analysis for cities: %s", cfg.fee_scan_cities)
+        for fee_city in cfg.fee_scan_cities:
+            if _shutdown:
+                break
+            try:
+                result = await scan_city_fees(fee_city)
+                fee_result["total"] += result["total"]
+                fee_result["processed"] += result["processed"]
+            except Exception:
+                logger.exception("Failed fee scan for city %s", fee_city)
+
     elapsed = time.time() - cycle_start
-    logger.info("=== CYCLE %d DONE in %.0fs — %d addresses ingested, %d plans scanned ===",
-                cycle_num, elapsed, total_addresses, scan_result["total"])
+    logger.info("=== CYCLE %d DONE in %.0fs — %d addresses, %d plans, %d fee analyses ===",
+                cycle_num, elapsed, total_addresses, scan_result["total"], fee_result["processed"])
 
     return {
         "cycle": cycle_num,
@@ -134,6 +151,7 @@ async def run_cycle(args: argparse.Namespace, cycle_num: int) -> dict:
         "addresses": total_addresses,
         "plans_scanned": scan_result["total"],
         "eligible_found": scan_result["scanned"],
+        "fee_analyses": fee_result["processed"],
         "elapsed_seconds": round(elapsed),
     }
 

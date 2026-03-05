@@ -86,6 +86,16 @@ class Config:
         )
     )
 
+    # Fee scanning
+    fee_scan_enabled: bool = field(
+        default_factory=lambda: os.environ.get("FEE_SCAN_ENABLED", "true").lower() in ("1", "true", "yes")
+    )
+    fee_scan_cities: list[str] = field(
+        default_factory=lambda: [
+            c.strip() for c in os.environ.get("FEE_SCAN_CITIES", "חיפה").split(",") if c.strip()
+        ]
+    )
+
 
 def get_config() -> Config:
     return Config()

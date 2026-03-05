@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from rcf.api.routes import cases, lawyers, owners, properties
+from rcf.api.routes import cases, fee_analysis, lawyers, owners, properties
 
 _WEB_DIR = Path(__file__).resolve().parent.parent.parent / "web"
 
@@ -31,6 +31,7 @@ app.include_router(cases.router, prefix="/api/cases", tags=["cases"])
 app.include_router(properties.router, prefix="/api/properties", tags=["properties"])
 app.include_router(lawyers.router, prefix="/api/lawyers", tags=["lawyers"])
 app.include_router(owners.router, prefix="/api/owners", tags=["owners"])
+app.include_router(fee_analysis.router, prefix="/api/fee-analysis", tags=["fee-analysis"])
 
 
 @app.get("/health")

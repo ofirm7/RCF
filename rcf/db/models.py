@@ -178,3 +178,41 @@ class ClassificationResult(BaseModel):
     classification: str  # authority_rejected | applicant_abandoned | unclear
     confidence: float  # 0.0–1.0
     evidence_excerpt: str | None = None
+
+
+# ------------------------------------------------------------------
+# Fee Analysis
+# ------------------------------------------------------------------
+class FeeAnalysisCreate(BaseModel):
+    """Data for inserting a fee analysis record."""
+
+    property_id: UUID
+    permit_id: UUID | None = None
+
+    # Invoice data
+    invoice_total: int | None = None            # agorot
+    invoice_paving_sqm: float | None = None
+    invoice_drainage_sqm: float | None = None
+    invoice_rate_per_sqm: float | None = None
+
+    # Permit area data
+    permit_residential_sqm: float | None = None
+    permit_service_sqm: float | None = None
+    permit_total_sqm: float | None = None
+
+    # Computed
+    correct_fee: int | None = None              # agorot
+    overcharge_amount: int | None = None        # agorot
+    fee_year: int | None = None
+    rate_used: float | None = None
+
+    # Documents
+    invoice_pdf_url: str | None = None
+    permit_pdf_url: str | None = None
+    extraction_raw: dict | None = None
+
+    # Auto-scan fields
+    plan_number: str | None = None
+    plan_url: str | None = None
+    scan_source: str = "manual_upload"   # "iplan_auto" | "manual_upload"
+    status: str = "complete"             # "pre_computed" | "complete" | "overcharge_detected"

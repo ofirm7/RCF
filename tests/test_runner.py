@@ -179,6 +179,55 @@ async def test_process_permit_short_text_filtered():
     assert call_args.classification == "authority_rejected"
 
 
+# --- duplicate / already-in-progress ---
+
+@pytest.mark.asyncio
+async def test_process_permit_skips_claimed_case():
+    """_process_permit skips when existing case is already claimed."""
+    recent_date = date.today() - timedelta(days=365)
+    permit = PermitCreate(
+        property_id=_PROP_UUID, permit_number="101-dup",
+        decision_date=recent_date, decision_type="rejected",
+    )
+
+    with patch("rcf.scanner.runner.repository") as mock_repo, \
+         patch("rcf.scanner.runner.decision_parser") as mock_dp:
+        mock_repo.insert_permit.return_value = {"id": str(uuid4())}
+        mock_repo.get_refund_case_by_permit.return_value = {
+            "id": str(uuid4()), "status": "claimed",
+        }
+
+        from rcf.scanner.runner import _process_permit
+        await _process_permit(permit, _PROP_ID)
+
+    # Should NOT create/update a refund case
+    mock_repo.insert_refund_case.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_process_permit_reprocesses_detected_case():
+    """_process_permit re-processes when existing case is still 'detected'."""
+    recent_date = date.today() - timedelta(days=365)
+    permit = PermitCreate(
+        property_id=_PROP_UUID, permit_number="101-redet",
+        decision_date=recent_date, decision_type="rejected",
+    )
+
+    with patch("rcf.scanner.runner.repository") as mock_repo, \
+         patch("rcf.scanner.runner.decision_parser") as mock_dp:
+        mock_repo.insert_permit.return_value = {"id": str(uuid4())}
+        mock_repo.get_refund_case_by_permit.return_value = {
+            "id": str(uuid4()), "status": "detected",
+        }
+        mock_dp.extract_decision_text = AsyncMock(return_value=None)
+
+        from rcf.scanner.runner import _process_permit
+        await _process_permit(permit, _PROP_ID)
+
+    # Should still create/update the refund case
+    mock_repo.insert_refund_case.assert_called_once()
+
+
 # --- _handle_rejected_plan ---
 
 @pytest.mark.asyncio

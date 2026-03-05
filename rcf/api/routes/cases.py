@@ -16,12 +16,13 @@ router = APIRouter()
 async def list_cases(
     city: str | None = None,
     status: str | None = None,
+    case_type: str | None = None,
     limit: int = Query(default=50, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> list[dict]:
-    """List eligible refund cases, filterable by city and status."""
+    """List eligible refund cases, filterable by city, status, and case_type."""
     return repository.get_eligible_cases(
-        city=city, status=status, limit=limit, offset=offset
+        city=city, status=status, case_type=case_type, limit=limit, offset=offset
     )
 
 

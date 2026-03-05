@@ -69,7 +69,7 @@ def test_list_cases_with_filters(mock_repo):
     resp = client.get("/api/cases?city=תל אביב&status=detected&limit=10&offset=5")
     assert resp.status_code == 200
     mock_repo.get_eligible_cases.assert_called_once_with(
-        city="תל אביב", status="detected", limit=10, offset=5
+        city="תל אביב", status="detected", case_type=None, limit=10, offset=5
     )
 
 

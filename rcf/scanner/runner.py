@@ -79,9 +79,19 @@ async def _process_permit(permit_data: PermitCreate, property_id: str) -> None:
         )
         return
 
-    # Insert permit row
+    # Upsert permit row (deduplicates on property_id + permit_number)
     permit_row = repository.insert_permit(permit_data)
     permit_id = permit_row["id"]
+
+    # Skip if a refund case already exists and is past 'detected' stage
+    existing_case = repository.get_refund_case_by_permit(permit_id)
+    if existing_case and existing_case.get("status") in ("verified", "claimed", "recovered"):
+        logger.info(
+            "Permit %s already has case in '%s' status — skipping",
+            permit_data.permit_number,
+            existing_case["status"],
+        )
+        return
 
     # Extract decision text
     decision_text = await decision_parser.extract_decision_text(
