@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RCF — Refund Claim Finder</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f7fa;
+      color: #1a1a2e;
+      line-height: 1.6;
+    }
+    header {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: white;
+      padding: 1.5rem 2rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    header h1 { font-size: 1.5rem; font-weight: 600; }
+    header p { opacity: 0.8; font-size: 0.9rem; margin-top: 0.25rem; }
+
+    .container { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
+
+    /* Filters */
+    .filters {
+      background: white;
+      border-radius: 12px;
+      padding: 1.25rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      align-items: end;
+    }
+    .filter-group { display: flex; flex-direction: column; gap: 0.3rem; }
+    .filter-group label { font-size: 0.8rem; font-weight: 600; color: #555; }
+    .filter-group input, .filter-group select {
+      padding: 0.5rem 0.75rem;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      min-width: 160px;
+    }
+    .filter-group input:focus, .filter-group select:focus {
+      outline: none;
+      border-color: #4361ee;
+      box-shadow: 0 0 0 3px rgba(67,97,238,0.15);
+    }
+    .btn {
+      padding: 0.5rem 1.25rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-primary { background: #4361ee; color: white; }
+    .btn-primary:hover { background: #3a56d4; }
+    .btn-secondary { background: #e9ecef; color: #333; }
+    .btn-secondary:hover { background: #dee2e6; }
+
+    /* Stats bar */
+    .stats {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+    .stat-card {
+      background: white;
+      border-radius: 12px;
+      padding: 1rem 1.5rem;
+      flex: 1;
+      min-width: 140px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+    .stat-card .value { font-size: 1.8rem; font-weight: 700; color: #4361ee; }
+    .stat-card .label { font-size: 0.8rem; color: #777; }
+
+    /* Table */
+    .table-wrap {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    thead { background: #f8f9fa; }
+    th {
+      padding: 0.75rem 1rem;
+      text-align: right;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #555;
+      border-bottom: 2px solid #e9ecef;
+    }
+    td {
+      padding: 0.75rem 1rem;
+      font-size: 0.85rem;
+      border-bottom: 1px solid #f0f0f0;
+      vertical-align: top;
+    }
+    tr:hover td { background: #f8f9ff; }
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.6rem;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .badge-eligible { background: #d4edda; color: #155724; }
+    .badge-ineligible { background: #f8d7da; color: #721c24; }
+    .badge-unclear { background: #fff3cd; color: #856404; }
+    .badge-detected { background: #cce5ff; color: #004085; }
+    .badge-claimed { background: #e2e3f1; color: #383d6e; }
+    .refund-amount { font-weight: 700; color: #28a745; white-space: nowrap; }
+    .confidence { color: #777; font-size: 0.8rem; }
+    .plan-link { color: #4361ee; text-decoration: none; font-size: 0.8rem; }
+    .plan-link:hover { text-decoration: underline; }
+    .city-name { font-weight: 600; }
+    .expiry { font-size: 0.8rem; }
+    .expiry.urgent { color: #dc3545; font-weight: 600; }
+
+    /* Detail modal */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 100;
+      justify-content: center;
+      align-items: center;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: white;
+      border-radius: 16px;
+      padding: 2rem;
+      max-width: 600px;
+      width: 90%;
+      max-height: 80vh;
+      overflow-y: auto;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    }
+    .modal h2 { margin-bottom: 1rem; font-size: 1.2rem; }
+    .modal .detail-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .modal .detail-label { font-weight: 600; color: #555; font-size: 0.85rem; }
+    .modal .detail-value { font-size: 0.85rem; text-align: left; max-width: 60%; }
+    .modal .close-btn {
+      margin-top: 1.5rem;
+      width: 100%;
+    }
+
+    /* Address search */
+    .address-search {
+      background: white;
+      border-radius: 12px;
+      padding: 1.25rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      display: flex;
+      gap: 0.75rem;
+      align-items: end;
+    }
+    .address-search .filter-group { flex: 1; }
+
+    .empty-state {
+      text-align: center;
+      padding: 3rem;
+      color: #999;
+    }
+    .empty-state p { font-size: 1.1rem; }
+
+    .pagination {
+      display: flex;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 1rem;
+    }
+
+    @media (max-width: 768px) {
+      .filters { flex-direction: column; }
+      .filter-group input, .filter-group select { min-width: 100%; }
+      th, td { padding: 0.5rem; font-size: 0.78rem; }
+      .stat-card .value { font-size: 1.4rem; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>RCF — Refund Claim Finder</h1>
+  <p>Automatic detection of building fee refund eligibility across Israel</p>
+</header>
+
+<div class="container">
+  <!-- Address lookup -->
+  <div class="address-search">
+    <div class="filter-group" style="flex:1">
+      <label>Search by address</label>
+      <input type="text" id="addressInput" placeholder="e.g. רוטשילד 5, תל אביב">
+    </div>
+    <button class="btn btn-primary" onclick="searchAddress()">Search</button>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats">
+    <div class="stat-card"><div class="value" id="statTotal">—</div><div class="label">Total Cases</div></div>
+    <div class="stat-card"><div class="value" id="statEligible">—</div><div class="label">Eligible</div></div>
+    <div class="stat-card"><div class="value" id="statRefund">—</div><div class="label">Total Estimated (ILS)</div></div>
+    <div class="stat-card"><div class="value" id="statCities">—</div><div class="label">Cities</div></div>
+  </div>
+
+  <!-- Filters -->
+  <div class="filters">
+    <div class="filter-group">
+      <label>City</label>
+      <select id="filterCity"><option value="">All cities</option></select>
+    </div>
+    <div class="filter-group">
+      <label>Status</label>
+      <select id="filterStatus">
+        <option value="">All</option>
+        <option value="detected">Detected</option>
+        <option value="verified">Verified</option>
+        <option value="claimed">Claimed</option>
+      </select>
+    </div>
+    <button class="btn btn-primary" onclick="loadCases()">Filter</button>
+    <button class="btn btn-secondary" onclick="resetFilters()">Reset</button>
+  </div>
+
+  <!-- Table -->
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>City</th>
+          <th>Plan / Address</th>
+          <th>Permit #</th>
+          <th>Eligibility</th>
+          <th>Estimated Refund</th>
+          <th>Confidence</th>
+          <th>Expiry</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="casesBody"></tbody>
+    </table>
+    <div id="emptyState" class="empty-state" style="display:none">
+      <p>No cases found. Adjust filters or wait for the scanner to discover more.</p>
+    </div>
+    <div class="pagination">
+      <button class="btn btn-secondary" id="prevBtn" onclick="prevPage()" disabled>&rarr; Previous</button>
+      <span id="pageInfo" style="padding:0.5rem;color:#777;font-size:0.85rem;"></span>
+      <button class="btn btn-secondary" id="nextBtn" onclick="nextPage()" disabled>Next &larr;</button>
+    </div>
+  </div>
+</div>
+
+<!-- Detail Modal -->
+<div class="modal-overlay" id="modal" onclick="closeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <h2 id="modalTitle">Case Details</h2>
+    <div id="modalBody"></div>
+    <button class="btn btn-secondary close-btn" onclick="document.getElementById('modal').classList.remove('active')">Close</button>
+  </div>
+</div>
+
+<script>
+const API = window.location.origin;
+const PAGE_SIZE = 20;
+let currentOffset = 0;
+let allCases = [];
+
+async function apiFetch(path) {
+  const resp = await fetch(API + path);
+  if (!resp.ok) return null;
+  return resp.json();
+}
+
+async function loadCases() {
+  const city = document.getElementById('filterCity').value;
+  const status = document.getElementById('filterStatus').value;
+  let url = `/api/cases?limit=200`;
+  if (city) url += `&city=${encodeURIComponent(city)}`;
+  if (status) url += `&status=${encodeURIComponent(status)}`;
+
+  const data = await apiFetch(url);
+  if (!data) { allCases = []; }
+  else { allCases = data; }
+
+  currentOffset = 0;
+  renderStats();
+  renderTable();
+  populateCities();
+}
+
+function renderStats() {
+  const eligible = allCases.filter(c => c.is_eligible);
+  const totalRefund = eligible.reduce((s, c) => s + (c.estimated_refund || 0), 0);
+  const cities = new Set(allCases.map(c => c.city).filter(Boolean));
+
+  document.getElementById('statTotal').textContent = allCases.length;
+  document.getElementById('statEligible').textContent = eligible.length;
+  document.getElementById('statRefund').textContent = totalRefund > 0 ? '₪' + totalRefund.toLocaleString() : '—';
+  document.getElementById('statCities').textContent = cities.size;
+}
+
+function renderTable() {
+  const body = document.getElementById('casesBody');
+  const empty = document.getElementById('emptyState');
+  const page = allCases.slice(currentOffset, currentOffset + PAGE_SIZE);
+
+  if (allCases.length === 0) {
+    body.innerHTML = '';
+    empty.style.display = 'block';
+  } else {
+    empty.style.display = 'none';
+    body.innerHTML = page.map(c => {
+      const elig = c.is_eligible === true ? '<span class="badge badge-eligible">Eligible</span>'
+                 : c.is_eligible === false ? '<span class="badge badge-ineligible">Not Eligible</span>'
+                 : '<span class="badge badge-unclear">Unclear</span>';
+
+      const refund = c.estimated_refund ? `<span class="refund-amount">₪${c.estimated_refund.toLocaleString()}</span>` : '—';
+
+      const conf = c.confidence_score != null ? `<span class="confidence">${(c.confidence_score * 100).toFixed(0)}%</span>` : '—';
+
+      const expiry = c.statute_expires_at || '—';
+      let expiryClass = 'expiry';
+      if (c.statute_expires_at) {
+        const daysLeft = (new Date(c.statute_expires_at) - new Date()) / 86400000;
+        if (daysLeft < 180 && daysLeft > 0) expiryClass = 'expiry urgent';
+      }
+
+      const statusBadge = c.status === 'claimed' ? '<span class="badge badge-claimed">Claimed</span>'
+                        : '<span class="badge badge-detected">' + (c.status || 'detected') + '</span>';
+
+      return `<tr>
+        <td class="city-name">${esc(c.city || '—')}</td>
+        <td>${esc(c.address_text || '—')}</td>
+        <td>${esc(c.permit_number || '—')}</td>
+        <td>${elig}</td>
+        <td>${refund}</td>
+        <td>${conf}</td>
+        <td class="${expiryClass}">${expiry}</td>
+        <td>${statusBadge}</td>
+        <td><button class="btn btn-secondary" style="padding:0.3rem 0.6rem;font-size:0.75rem" onclick="showDetail('${c.id}')">Details</button></td>
+      </tr>`;
+    }).join('');
+  }
+
+  // Pagination
+  document.getElementById('prevBtn').disabled = currentOffset === 0;
+  document.getElementById('nextBtn').disabled = currentOffset + PAGE_SIZE >= allCases.length;
+  const pageNum = Math.floor(currentOffset / PAGE_SIZE) + 1;
+  const totalPages = Math.ceil(allCases.length / PAGE_SIZE);
+  document.getElementById('pageInfo').textContent = allCases.length > 0 ? `Page ${pageNum} / ${totalPages}` : '';
+}
+
+function nextPage() { currentOffset += PAGE_SIZE; renderTable(); }
+function prevPage() { currentOffset = Math.max(0, currentOffset - PAGE_SIZE); renderTable(); }
+
+function populateCities() {
+  const select = document.getElementById('filterCity');
+  const current = select.value;
+  const cities = [...new Set(allCases.map(c => c.city).filter(Boolean))].sort();
+
+  // Keep existing options if already populated with same cities
+  const existingOptions = [...select.options].slice(1).map(o => o.value);
+  if (JSON.stringify(existingOptions) === JSON.stringify(cities)) return;
+
+  select.innerHTML = '<option value="">All cities</option>';
+  cities.forEach(city => {
+    const opt = document.createElement('option');
+    opt.value = city;
+    opt.textContent = city;
+    if (city === current) opt.selected = true;
+    select.appendChild(opt);
+  });
+}
+
+async function searchAddress() {
+  const addr = document.getElementById('addressInput').value.trim();
+  if (!addr) return;
+  const data = await apiFetch(`/api/properties/${encodeURIComponent(addr)}`);
+  if (!data || data.detail) {
+    allCases = [];
+    renderStats();
+    renderTable();
+    document.getElementById('emptyState').style.display = 'block';
+    document.getElementById('emptyState').querySelector('p').textContent =
+      `No results for "${addr}". Try a different address.`;
+    return;
+  }
+  // Map property results to case-like objects for table
+  allCases = data.map(p => ({
+    id: p.case_id || p.id,
+    city: p.city,
+    address_text: p.address_text,
+    permit_number: p.permit_number,
+    is_eligible: p.is_eligible,
+    estimated_refund: p.estimated_refund,
+    confidence_score: p.confidence_score,
+    statute_expires_at: p.statute_expires_at,
+    status: p.case_status || p.status || 'detected',
+    classification: p.classification,
+  }));
+  currentOffset = 0;
+  renderStats();
+  renderTable();
+}
+
+async function showDetail(caseId) {
+  const data = await apiFetch(`/api/cases/${caseId}`);
+  if (!data) return;
+
+  document.getElementById('modalTitle').textContent = data.address_text || 'Case Details';
+
+  const rows = [
+    ['City', data.city],
+    ['Address', data.address_text],
+    ['Block / Plot', `${data.block || '—'} / ${data.plot || '—'}`],
+    ['Permit #', data.permit_number],
+    ['Decision Date', data.decision_date],
+    ['Decision Type', data.decision_type],
+    ['Classification', data.classification],
+    ['Confidence', data.confidence_score != null ? (data.confidence_score * 100).toFixed(0) + '%' : '—'],
+    ['Eligible', data.is_eligible === true ? 'Yes' : data.is_eligible === false ? 'No' : 'Unclear'],
+    ['Estimated Refund', data.estimated_refund ? '₪' + data.estimated_refund.toLocaleString() : '—'],
+    ['Statute Expires', data.statute_expires_at || '—'],
+    ['Status', data.status],
+    ['Evidence', data.evidence_summary || '—'],
+    ['Source', data.source_url ? `<a href="${esc(data.source_url)}" target="_blank" class="plan-link">View on MAVAT</a>` : '—'],
+  ];
+
+  document.getElementById('modalBody').innerHTML = rows.map(([label, value]) =>
+    `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-value">${value || '—'}</span></div>`
+  ).join('');
+
+  document.getElementById('modal').classList.add('active');
+}
+
+function closeModal(e) {
+  if (e.target === document.getElementById('modal')) {
+    document.getElementById('modal').classList.remove('active');
+  }
+}
+
+function resetFilters() {
+  document.getElementById('filterCity').value = '';
+  document.getElementById('filterStatus').value = '';
+  document.getElementById('addressInput').value = '';
+  loadCases();
+}
+
+function esc(s) {
+  if (!s) return '';
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// Enter key triggers search
+document.getElementById('addressInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') searchAddress();
+});
+
+// Load on startup
+loadCases();
+</script>
+</body>
+</html>

@@ -1,0 +1,50 @@
+services:
+  # ── PostgreSQL ──────────────────────────────────────────────
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: rcf
+      POSTGRES_PASSWORD: rcf
+      POSTGRES_DB: rcf
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./supabase/migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rcf"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  # ── FastAPI REST server ─────────────────────────────────────
+  api:
+    build: .
+    command: uvicorn rcf.api.app:app --host 0.0.0.0 --port 8000
+    environment:
+      DATABASE_URL: postgresql://rcf:rcf@db:5432/rcf
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ── Scanner daemon (continuous ingestion + scan) ─────────────
+  scanner:
+    build: .
+    command: >
+      python scripts/daemon.py
+        --max-house-number ${INGEST_MAX_HOUSE:-20}
+        --step ${INGEST_STEP:-1}
+        --sleep ${DAEMON_SLEEP:-1800}
+    restart: unless-stopped
+    stop_grace_period: 30s
+    environment:
+      DATABASE_URL: postgresql://rcf:rcf@db:5432/rcf
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
